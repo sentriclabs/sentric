@@ -1,0 +1,154 @@
+"""Tests for TrajectoryCollector core functionality."""
+
+import json
+import tempfile
+from sentric import TrajectoryCollector
+
+
+def test_basic_episode():
+    """A 5-step episode saves valid JSON matching the schema."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="django__django-11099",
+            domain="code",
+            model={"name": "Qwen/Qwen2.5-Coder-7B", "version": "base", "provider": "local"},
+            output_dir=tmpdir,
+            metadata={"repo": "django/django", "base_commit": "abc123"},
+        )
+
+        collector.add_message(role="system", content="You are a software engineer.")
+        collector.add_message(role="user", content="Fix the regex bug.")
+        collector.add_message(
+            role="assistant",
+            content="Let me find the file.",
+            tool_calls=[{"id": "call_1", "name": "bash", "arguments": '{"command": "grep -r Validator"}'}],
+        )
+        collector.add_message(role="tool", content="validators.py:class ASCIIUsernameValidator", tool_call_id="call_1")
+        collector.add_message(
+            role="assistant",
+            content="Changing $ to \\Z in the regex.",
+            tool_calls=[{"id": "call_2", "name": "file_write", "arguments": '{"path": "validators.py"}'}],
+        )
+
+        collector.add_tokens(350)
+        collector.add_tokens(210)
+        path = collector.save_episode()
+
+        assert path.exists()
+        data = json.loads(path.read_text())
+
+        # Top-level fields
+        assert data["episode_id"] == collector.episode_id
+        assert data["task_id"] == "django__django-11099"
+        assert data["domain"] == "code"
+        assert data["created_at"] is not None
+        assert data["duration_ms"] >= 0
+
+        # Model
+        assert data["model"]["name"] == "Qwen/Qwen2.5-Coder-7B"
+        assert data["model"]["version"] == "base"
+        assert data["model"]["provider"] == "local"
+
+        # Reward fields null before scoring
+        assert data["reward"] is None
+        assert data["success"] is None
+        assert data["verifier"] is None
+        assert data["verified_at"] is None
+
+        # Messages
+        assert len(data["messages"]) == 5
+        assert data["messages"][0]["role"] == "system"
+        assert data["messages"][1]["role"] == "user"
+        assert data["messages"][2]["role"] == "assistant"
+        assert data["messages"][2]["tool_calls"][0]["name"] == "bash"
+        assert data["messages"][3]["role"] == "tool"
+        assert data["messages"][3]["tool_call_id"] == "call_1"
+        assert data["messages"][4]["tool_calls"][0]["name"] == "file_write"
+
+        # No stray fields
+        assert "tool_calls" not in data["messages"][0]
+        assert "tool_calls" not in data["messages"][1]
+        assert "tool_calls" not in data["messages"][3]
+        assert "tool_call_id" not in data["messages"][0]
+        assert "tool_call_id" not in data["messages"][2]
+
+        # Token tracking
+        assert data["total_tokens"] == 560
+
+        # Metadata
+        assert data["metadata"]["repo"] == "django/django"
+
+
+def test_validation_rejects_bad_input():
+    """Invalid roles, missing tool_call_id, and incomplete tool_calls raise ValueError."""
+    collector = TrajectoryCollector(
+        task_id="test", domain="code",
+        model={"name": "test", "version": "base", "provider": "local"},
+    )
+
+    # Bad role
+    try:
+        collector.add_message(role="invalid", content="hello")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+    # Tool message without tool_call_id
+    try:
+        collector.add_message(role="tool", content="result")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+    # Tool call missing required fields
+    try:
+        collector.add_message(
+            role="assistant", content="hi",
+            tool_calls=[{"id": "call_1", "name": "bash"}],  # missing "arguments"
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+
+
+def test_reset():
+    """Reset clears state for a new episode while preserving model/domain."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="task_1", domain="code",
+            model={"name": "test", "version": "base", "provider": "local"},
+            output_dir=tmpdir,
+        )
+
+        collector.add_message(role="user", content="first episode")
+        path1 = collector.save_episode()
+        old_id = collector.episode_id
+
+        collector.reset(task_id="task_2")
+        assert collector.episode_id != old_id
+        assert collector.task_id == "task_2"
+        assert len(collector.messages) == 0
+
+        collector.add_message(role="user", content="second episode")
+        path2 = collector.save_episode()
+
+        assert path1 != path2
+        data1 = json.loads(path1.read_text())
+        data2 = json.loads(path2.read_text())
+        assert data1["task_id"] == "task_1"
+        assert data2["task_id"] == "task_2"
+        assert data1["episode_id"] != data2["episode_id"]
+
+
+def test_no_tokens_saved_as_null():
+    """If no tokens are tracked, total_tokens is null in the output."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={"name": "test", "version": "base", "provider": "local"},
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+        assert data["total_tokens"] is None
