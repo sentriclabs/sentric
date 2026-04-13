@@ -129,6 +129,13 @@ for task in tasks:
     collector.save_episode()
 ```
 
+## Testing
+
+```bash
+pip install sentric[dev]
+pytest tests/ -v
+```
+
 ## License
 
 MIT
