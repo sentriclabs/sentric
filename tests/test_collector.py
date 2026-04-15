@@ -1,8 +1,16 @@
 """Tests for TrajectoryCollector core functionality."""
 
 import json
+import re
 import tempfile
+import sentric
 from sentric import TrajectoryCollector
+
+
+def test_version():
+    """sentric.__version__ is a string matching semver pattern."""
+    assert isinstance(sentric.__version__, str)
+    assert re.match(r"^\d+\.\d+\.\d+$", sentric.__version__)
 
 
 def test_basic_episode():

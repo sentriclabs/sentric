@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentric"
-version = "0.1.1"
+version = "0.2.0"
 description = "Open-source trajectory logging for LLM agents. Two lines of code to structured, replayable records of every agent run."
 readme = "README.md"
 license = "MIT"
