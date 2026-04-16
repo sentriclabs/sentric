@@ -142,20 +142,17 @@ class TrajectoryCollector:
 
     def _calculate_cost(self) -> float | None:
         """Calculate total cost from tokens and model pricing."""
-        if self._cost_usd > 0:
-            return self._cost_usd
+        total = self._cost_usd
 
-        if self._input_tokens == 0 and self._output_tokens == 0:
-            return None
+        if self._input_tokens > 0 or self._output_tokens > 0:
+            pricing = get_pricing(
+                self.model.get("name", ""),
+                self.model.get("pricing"),
+            )
+            if pricing is not None:
+                total += calculate_cost(self._input_tokens, self._output_tokens, pricing)
 
-        pricing = get_pricing(
-            self.model.get("name", ""),
-            self.model.get("pricing"),
-        )
-        if pricing is None:
-            return None
-
-        return calculate_cost(self._input_tokens, self._output_tokens, pricing) + self._cost_usd
+        return total if total > 0 else None
 
     def to_dict(self) -> dict:
         """Return the episode as a dict without writing to disk."""

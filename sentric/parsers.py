@@ -79,7 +79,7 @@ def detect_and_parse(response, normalizer=None) -> tuple[list[dict], int, int]:
         if isinstance(result, tuple) and len(result) == 3:
             return result
         if isinstance(result, tuple) and len(result) == 2:
-            # Backward compat: (messages, total_tokens) -> split evenly as output
+            # Backward compat: (messages, total_tokens) -> treat as output tokens
             return result[0], 0, result[1]
         return result, 0, 0
 
