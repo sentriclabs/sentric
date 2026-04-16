@@ -1,4 +1,4 @@
-"""The @trace decorator for automatic trajectory collection.
+"""The @trace and @atrace decorators for automatic trajectory collection.
 
 Usage:
 
@@ -14,6 +14,12 @@ Usage:
     def call_llm(messages, **kwargs):
         return openai.chat.completions.create(messages=messages, model="gpt-4o", **kwargs)
 
+For async functions:
+
+    @atrace(collector)
+    async def call_llm(messages, **kwargs):
+        return await openai.chat.completions.create(messages=messages, model="gpt-4o", **kwargs)
+
 For custom LLM wrappers, provide a normalizer:
 
     def my_normalizer(response) -> tuple[list[dict], int]:
@@ -24,7 +30,6 @@ For custom LLM wrappers, provide a normalizer:
         return custom_client.generate(messages)
 """
 
-import json
 import functools
 from sentric.parsers import detect_and_parse
 
@@ -74,6 +79,36 @@ def _normalize_tool_calls(tool_calls):
     return normalized
 
 
+def _pre_call(collector, args, kwargs):
+    """Shared pre-call logic: extract and log new input messages."""
+    input_messages = _extract_input_messages(args, kwargs)
+    already_logged = len(collector.messages)
+
+    new_messages = input_messages[already_logged:]
+    for msg in new_messages:
+        collector.add_message(
+            role=msg["role"],
+            content=msg.get("content"),
+            tool_calls=_normalize_tool_calls(msg.get("tool_calls")),
+            tool_call_id=msg.get("tool_call_id"),
+        )
+
+
+def _post_call(collector, response, normalizer):
+    """Shared post-call logic: parse response and log output messages."""
+    messages, tokens = detect_and_parse(response, normalizer=normalizer)
+    for msg in messages:
+        collector.add_message(
+            role=msg["role"],
+            content=msg.get("content"),
+            tool_calls=msg.get("tool_calls"),
+            tool_call_id=msg.get("tool_call_id"),
+        )
+
+    if tokens > 0:
+        collector.add_tokens(tokens)
+
+
 def trace(collector, normalizer=None):
     """Decorator that logs LLM calls to a TrajectoryCollector.
 
@@ -87,32 +122,34 @@ def trace(collector, normalizer=None):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            input_messages = _extract_input_messages(args, kwargs)
-            already_logged = len(collector.messages)
-
-            new_messages = input_messages[already_logged:]
-            for msg in new_messages:
-                collector.add_message(
-                    role=msg["role"],
-                    content=msg.get("content"),
-                    tool_calls=_normalize_tool_calls(msg.get("tool_calls")),
-                    tool_call_id=msg.get("tool_call_id"),
-                )
-
+            _pre_call(collector, args, kwargs)
             response = fn(*args, **kwargs)
+            _post_call(collector, response, normalizer)
+            return response
 
-            messages, tokens = detect_and_parse(response, normalizer=normalizer)
-            for msg in messages:
-                collector.add_message(
-                    role=msg["role"],
-                    content=msg.get("content"),
-                    tool_calls=msg.get("tool_calls"),
-                    tool_call_id=msg.get("tool_call_id"),
-                )
+        return wrapper
 
-            if tokens > 0:
-                collector.add_tokens(tokens)
+    return decorator
 
+
+def atrace(collector, normalizer=None):
+    """Async decorator that logs LLM calls to a TrajectoryCollector.
+
+    Works identically to @trace but wraps async functions.
+
+    Args:
+        collector: A TrajectoryCollector instance to log messages to.
+        normalizer: Optional function that takes a response and returns
+            (messages: list[dict], token_count: int). If provided, this
+            is used instead of auto-detection.
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            _pre_call(collector, args, kwargs)
+            response = await fn(*args, **kwargs)
+            _post_call(collector, response, normalizer)
             return response
 
         return wrapper

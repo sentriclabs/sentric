@@ -1,6 +1,6 @@
 from sentric.collector import TrajectoryCollector
-from sentric.trace import trace
+from sentric.trace import trace, atrace
 
 __version__ = "0.2.0"
 
-__all__ = ["TrajectoryCollector", "trace", "__version__"]
+__all__ = ["TrajectoryCollector", "trace", "atrace", "__version__"]
