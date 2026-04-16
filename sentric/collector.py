@@ -1,8 +1,13 @@
 import json
 import uuid
 import time
+import sys
+import platform
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+
+_SENTINEL = object()
 
 
 class TrajectoryCollector:
@@ -29,6 +34,20 @@ class TrajectoryCollector:
         collector.save_episode()
     """
 
+    __slots__ = (
+        "episode_id",
+        "task_id",
+        "domain",
+        "model",
+        "output_dir",
+        "metadata",
+        "messages",
+        "_start_time",
+        "_total_tokens",
+        "_executor",
+        "_otel_span",
+    )
+
     def __init__(
         self,
         task_id: str,
@@ -46,6 +65,8 @@ class TrajectoryCollector:
         self.messages: list[dict] = []
         self._start_time = time.monotonic()
         self._total_tokens = 0
+        self._executor = None
+        self._otel_span = None
 
     def add_message(
         self,
@@ -77,18 +98,31 @@ class TrajectoryCollector:
 
         self.messages.append(message)
 
+    def add_step(
+        self,
+        content: str,
+        tool_name: str,
+        tool_args: str,
+        tool_result: str,
+        tool_call_id: str | None = None,
+    ):
+        """Log a full tool-call round-trip (assistant + tool) in one call."""
+        call_id = tool_call_id or f"call_{uuid.uuid4().hex[:8]}"
+        self.add_message(
+            role="assistant",
+            content=content,
+            tool_calls=[{"id": call_id, "name": tool_name, "arguments": tool_args}],
+        )
+        self.add_message(role="tool", content=tool_result, tool_call_id=call_id)
+
     def add_tokens(self, count: int):
         """Track token usage across model calls."""
         self._total_tokens += count
 
-    def save_episode(self, output_dir: str | None = None) -> Path:
-        """Write the trajectory to disk as JSON. Returns the path to the saved file."""
-        out = Path(output_dir) if output_dir else self.output_dir
-        out.mkdir(parents=True, exist_ok=True)
-
+    def to_dict(self) -> dict:
+        """Return the episode as a dict without writing to disk."""
         duration_ms = int((time.monotonic() - self._start_time) * 1000)
-
-        episode = {
+        return {
             "episode_id": self.episode_id,
             "task_id": self.task_id,
             "domain": self.domain,
@@ -104,16 +138,52 @@ class TrajectoryCollector:
             "metadata": self.metadata,
         }
 
+    def save_episode(self, output_dir: str | None = None) -> Path:
+        """Write the trajectory to disk as JSON. Returns the path to the saved file."""
+        out = Path(output_dir) if output_dir else self.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+
+        episode = self.to_dict()
+
         path = out / f"{self.episode_id}.json"
         path.write_text(json.dumps(episode, indent=2))
         return path
 
-    def reset(self, task_id: str | None = None, metadata: dict | None = None):
+    def capture_env(self):
+        """Capture environment info into metadata under the _env key."""
+        env = {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "packages": {},
+        }
+
+        for pkg_name in ("sentric", "openai", "anthropic"):
+            try:
+                mod = __import__(pkg_name)
+                env["packages"][pkg_name] = getattr(mod, "__version__", "unknown")
+            except ImportError:
+                pass
+
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            env["git_hash"] = result.stdout.strip() if result.returncode == 0 else None
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            env["git_hash"] = None
+
+        self.metadata["_env"] = env
+
+    def reset(self, task_id: str | None = None, metadata=_SENTINEL):
         """Reset the collector for a new episode, keeping model and domain."""
         self.episode_id = str(uuid.uuid4())
         if task_id is not None:
             self.task_id = task_id
         self.messages = []
-        self.metadata = metadata or {}
+        if metadata is not _SENTINEL:
+            self.metadata = metadata or {}
         self._start_time = time.monotonic()
         self._total_tokens = 0
