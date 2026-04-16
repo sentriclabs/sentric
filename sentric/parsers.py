@@ -1,20 +1,22 @@
 """Response parsers for OpenAI and Anthropic SDK types.
 
 Each parser takes a raw SDK response and returns a list of messages
-in our schema format, plus a token count. Parsers are auto-selected
-based on the response type — users never call these directly.
+in our schema format, plus input and output token counts. Parsers are
+auto-selected based on the response type — users never call these directly.
 """
 
 import json
 
 
-def parse_openai(response) -> tuple[list[dict], int]:
-    """Parse an OpenAI ChatCompletion into schema messages + token count."""
+def parse_openai(response) -> tuple[list[dict], int, int]:
+    """Parse an OpenAI ChatCompletion into schema messages + token counts."""
     message = response.choices[0].message
-    tokens = 0
+    input_tokens = 0
+    output_tokens = 0
 
     if response.usage:
-        tokens = response.usage.total_tokens
+        input_tokens = response.usage.prompt_tokens
+        output_tokens = response.usage.completion_tokens
 
     parsed = {"role": "assistant", "content": message.content}
 
@@ -28,14 +30,16 @@ def parse_openai(response) -> tuple[list[dict], int]:
             for tc in message.tool_calls
         ]
 
-    return [parsed], tokens
+    return [parsed], input_tokens, output_tokens
 
 
-def parse_anthropic(response) -> tuple[list[dict], int]:
-    """Parse an Anthropic Message into schema messages + token count."""
-    tokens = 0
+def parse_anthropic(response) -> tuple[list[dict], int, int]:
+    """Parse an Anthropic Message into schema messages + token counts."""
+    input_tokens = 0
+    output_tokens = 0
     if response.usage:
-        tokens = response.usage.input_tokens + response.usage.output_tokens
+        input_tokens = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
 
     text_parts = []
     tool_calls = []
@@ -56,21 +60,28 @@ def parse_anthropic(response) -> tuple[list[dict], int]:
     if tool_calls:
         parsed["tool_calls"] = tool_calls
 
-    return [parsed], tokens
+    return [parsed], input_tokens, output_tokens
 
 
-def parse_fallback(response) -> tuple[list[dict], int]:
+def parse_fallback(response) -> tuple[list[dict], int, int]:
     """Stringify any unrecognized response type."""
-    return [{"role": "assistant", "content": str(response)}], 0
+    return [{"role": "assistant", "content": str(response)}], 0, 0
 
 
-def detect_and_parse(response, normalizer=None) -> tuple[list[dict], int]:
-    """Auto-detect the response type and parse it."""
+def detect_and_parse(response, normalizer=None) -> tuple[list[dict], int, int]:
+    """Auto-detect the response type and parse it.
+
+    Returns:
+        (messages, input_tokens, output_tokens)
+    """
     if normalizer is not None:
         result = normalizer(response)
-        if isinstance(result, tuple) and len(result) == 2:
+        if isinstance(result, tuple) and len(result) == 3:
             return result
-        return result, 0
+        if isinstance(result, tuple) and len(result) == 2:
+            # Backward compat: (messages, total_tokens) -> split evenly as output
+            return result[0], 0, result[1]
+        return result, 0, 0
 
     type_name = type(response).__name__
     module = type(response).__module__ or ""

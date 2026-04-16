@@ -7,6 +7,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sentric.pricing import get_pricing, calculate_cost
+
 _SENTINEL = object()
 
 
@@ -43,7 +45,9 @@ class TrajectoryCollector:
         "metadata",
         "messages",
         "_start_time",
-        "_total_tokens",
+        "_input_tokens",
+        "_output_tokens",
+        "_cost_usd",
         "_executor",
         "_otel_span",
     )
@@ -64,7 +68,9 @@ class TrajectoryCollector:
         self.metadata = metadata or {}
         self.messages: list[dict] = []
         self._start_time = time.monotonic()
-        self._total_tokens = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_usd = 0.0
         self._executor = None
         self._otel_span = None
 
@@ -115,13 +121,46 @@ class TrajectoryCollector:
         )
         self.add_message(role="tool", content=tool_result, tool_call_id=call_id)
 
-    def add_tokens(self, count: int):
-        """Track token usage across model calls."""
-        self._total_tokens += count
+    def add_tokens(self, input_tokens: int = 0, output_tokens: int = 0):
+        """Track token usage across model calls.
+
+        Args:
+            input_tokens: Number of input/prompt tokens.
+            output_tokens: Number of output/completion tokens.
+        """
+        self._input_tokens += input_tokens
+        self._output_tokens += output_tokens
+
+    def add_cost(self, amount: float):
+        """Manually add cost in USD."""
+        self._cost_usd += amount
+
+    @property
+    def _total_tokens(self) -> int:
+        """Total tokens (input + output) for backward compatibility."""
+        return self._input_tokens + self._output_tokens
+
+    def _calculate_cost(self) -> float | None:
+        """Calculate total cost from tokens and model pricing."""
+        if self._cost_usd > 0:
+            return self._cost_usd
+
+        if self._input_tokens == 0 and self._output_tokens == 0:
+            return None
+
+        pricing = get_pricing(
+            self.model.get("name", ""),
+            self.model.get("pricing"),
+        )
+        if pricing is None:
+            return None
+
+        return calculate_cost(self._input_tokens, self._output_tokens, pricing) + self._cost_usd
 
     def to_dict(self) -> dict:
         """Return the episode as a dict without writing to disk."""
         duration_ms = int((time.monotonic() - self._start_time) * 1000)
+        total_tokens = self._input_tokens + self._output_tokens
         return {
             "episode_id": self.episode_id,
             "task_id": self.task_id,
@@ -134,7 +173,10 @@ class TrajectoryCollector:
             "verified_at": None,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "duration_ms": duration_ms,
-            "total_tokens": self._total_tokens if self._total_tokens > 0 else None,
+            "total_tokens": total_tokens if total_tokens > 0 else None,
+            "input_tokens": self._input_tokens if self._input_tokens > 0 else None,
+            "output_tokens": self._output_tokens if self._output_tokens > 0 else None,
+            "total_cost_usd": self._calculate_cost(),
             "metadata": self.metadata,
         }
 
@@ -186,4 +228,6 @@ class TrajectoryCollector:
         if metadata is not _SENTINEL:
             self.metadata = metadata or {}
         self._start_time = time.monotonic()
-        self._total_tokens = 0
+        self._input_tokens = 0
+        self._output_tokens = 0
+        self._cost_usd = 0.0

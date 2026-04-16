@@ -3,6 +3,7 @@
 import json
 import re
 import tempfile
+import pytest
 import sentric
 from sentric import TrajectoryCollector
 
@@ -38,8 +39,8 @@ def test_basic_episode():
             tool_calls=[{"id": "call_2", "name": "file_write", "arguments": '{"path": "validators.py"}'}],
         )
 
-        collector.add_tokens(350)
-        collector.add_tokens(210)
+        collector.add_tokens(input_tokens=150, output_tokens=200)
+        collector.add_tokens(input_tokens=80, output_tokens=130)
         path = collector.save_episode()
 
         assert path.exists()
@@ -223,7 +224,7 @@ def test_to_dict():
             metadata={"key": "value"},
         )
         collector.add_message(role="user", content="hello")
-        collector.add_tokens(100)
+        collector.add_tokens(input_tokens=40, output_tokens=60)
 
         d = collector.to_dict()
 
@@ -233,6 +234,8 @@ def test_to_dict():
         assert d["model"]["name"] == "test"
         assert len(d["messages"]) == 1
         assert d["total_tokens"] == 100
+        assert d["input_tokens"] == 40
+        assert d["output_tokens"] == 60
         assert d["metadata"]["key"] == "value"
         assert d["reward"] is None
         assert d["success"] is None
@@ -318,3 +321,80 @@ def test_capture_env():
     assert "packages" in env
     assert "sentric" in env["packages"]
     assert "git_hash" in env
+
+
+def test_auto_cost_calculation():
+    """Cost is auto-calculated from tokens + built-in pricing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={"name": "gpt-4o", "version": "2024-08-06", "provider": "openai"},
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        collector.add_tokens(input_tokens=1000, output_tokens=500)
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+
+        # gpt-4o: input=$2.50/M, output=$10.00/M
+        expected = 1000 * 2.50 / 1_000_000 + 500 * 10.00 / 1_000_000
+        assert data["total_cost_usd"] == pytest.approx(expected)
+        assert data["input_tokens"] == 1000
+        assert data["output_tokens"] == 500
+        assert data["total_tokens"] == 1500
+
+
+def test_manual_cost():
+    """add_cost() manually tracks cost in USD."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={"name": "custom-model", "version": "v1", "provider": "local"},
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        collector.add_cost(0.05)
+        collector.add_cost(0.03)
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+
+        assert data["total_cost_usd"] == pytest.approx(0.08)
+
+
+def test_custom_pricing():
+    """Custom pricing in model dict overrides built-in pricing."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={
+                "name": "gpt-4o",  # has built-in pricing
+                "version": "custom",
+                "provider": "openai",
+                "pricing": {"input": 0.001, "output": 0.002},  # custom override
+            },
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        collector.add_tokens(input_tokens=100, output_tokens=200)
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+
+        expected = 100 * 0.001 + 200 * 0.002
+        assert data["total_cost_usd"] == pytest.approx(expected)
+
+
+def test_unknown_model_no_cost():
+    """Unknown model without custom pricing results in null cost."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={"name": "totally-unknown-model", "version": "v1", "provider": "local"},
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        collector.add_tokens(input_tokens=100, output_tokens=200)
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+
+        assert data["total_cost_usd"] is None
+        assert data["total_tokens"] == 300

@@ -96,7 +96,7 @@ def _pre_call(collector, args, kwargs):
 
 def _post_call(collector, response, normalizer):
     """Shared post-call logic: parse response and log output messages."""
-    messages, tokens = detect_and_parse(response, normalizer=normalizer)
+    messages, input_tokens, output_tokens = detect_and_parse(response, normalizer=normalizer)
     for msg in messages:
         collector.add_message(
             role=msg["role"],
@@ -105,8 +105,8 @@ def _post_call(collector, response, normalizer):
             tool_call_id=msg.get("tool_call_id"),
         )
 
-    if tokens > 0:
-        collector.add_tokens(tokens)
+    if input_tokens > 0 or output_tokens > 0:
+        collector.add_tokens(input_tokens=input_tokens, output_tokens=output_tokens)
 
 
 def trace(collector, normalizer=None):
