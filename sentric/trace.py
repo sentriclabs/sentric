@@ -74,8 +74,8 @@ def _normalize_tool_calls(tool_calls):
                     "name": getattr(tc, "function", tc).name if hasattr(tc, "function") else tc["name"],
                     "arguments": getattr(tc, "function", tc).arguments if hasattr(tc, "function") else tc["arguments"],
                 })
-            except (AttributeError, KeyError, TypeError):
-                normalized.append({"id": str(tc), "name": "unknown", "arguments": "{}"})
+            except (AttributeError, KeyError, TypeError) as e:
+                raise ValueError(f"Unrecognized tool_call format: {tc!r}") from e
     return normalized
 
 
