@@ -31,7 +31,6 @@ For custom LLM wrappers, provide a normalizer:
 """
 
 import functools
-import inspect
 from sentric.parsers import detect_and_parse
 from sentric.streams import TracedStream, TracedAsyncStream
 
@@ -116,22 +115,6 @@ def _detect_stream_type(response) -> str | None:
     type_name = type(response).__name__
     module = getattr(type(response), "__module__", "") or ""
 
-    # OpenAI Stream object
-    if "openai" in module and "Stream" in type_name:
-        return "openai"
-
-    # Anthropic MessageStream
-    if "anthropic" in module and "Stream" in type_name:
-        return "anthropic"
-
-    return None
-
-
-def _detect_async_stream_type(response) -> str | None:
-    """Detect if a response is an async streaming response."""
-    type_name = type(response).__name__
-    module = getattr(type(response), "__module__", "") or ""
-
     if "openai" in module and "Stream" in type_name:
         return "openai"
 
@@ -190,15 +173,12 @@ def atrace(collector, normalizer=None):
             _pre_call(collector, args, kwargs)
             response = await fn(*args, **kwargs)
 
-            # Check for async streaming response
-            stream_type = _detect_async_stream_type(response)
+            # Check for streaming response (sync or async)
+            stream_type = _detect_stream_type(response)
             if stream_type and normalizer is None:
-                return TracedAsyncStream(response, collector, stream_type=stream_type)
-
-            # Also check sync iterator returned from async fn
-            sync_type = _detect_stream_type(response)
-            if sync_type and normalizer is None:
-                return TracedStream(response, collector, stream_type=sync_type)
+                if hasattr(response, "__aiter__"):
+                    return TracedAsyncStream(response, collector, stream_type=stream_type)
+                return TracedStream(response, collector, stream_type=stream_type)
 
             _post_call(collector, response, normalizer)
             return response
