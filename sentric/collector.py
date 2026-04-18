@@ -1,5 +1,6 @@
 import atexit
 import logging
+import threading
 import uuid
 import time
 import sys
@@ -16,17 +17,36 @@ from sentric import otel as _otel
 _log = logging.getLogger("sentric")
 
 _executor: ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
 
 
 def _get_executor() -> ThreadPoolExecutor:
     """Return the module-level singleton ThreadPoolExecutor."""
     global _executor
     if _executor is None:
-        _executor = ThreadPoolExecutor(max_workers=1)
-        atexit.register(_executor.shutdown, wait=True)
+        with _executor_lock:
+            if _executor is None:
+                _executor = ThreadPoolExecutor(max_workers=1)
+                atexit.register(_executor.shutdown, wait=True)
     return _executor
 
+
 _SENTINEL = object()
+
+
+class _OtelSnapshot:
+    """Lightweight snapshot of collector state for async OTel span ending."""
+
+    __slots__ = ("messages", "_input_tokens", "_output_tokens", "_cost")
+
+    def __init__(self, messages, input_tokens, output_tokens, cost):
+        self.messages = messages
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self._cost = cost
+
+    def _calculate_cost(self):
+        return self._cost
 
 
 class TrajectoryCollector:
@@ -225,13 +245,21 @@ class TrajectoryCollector:
         episode_id = self.episode_id
         out = Path(output_dir) if output_dir else self.output_dir
         span = self._otel_span
-        collector_ref = self
+
+        # Snapshot OTel-relevant state so the closure doesn't hold self alive
+        # and is immune to reset() being called before _write runs.
+        otel_snapshot = _OtelSnapshot(
+            messages=self.messages,
+            input_tokens=self._input_tokens,
+            output_tokens=self._output_tokens,
+            cost=self._calculate_cost(),
+        )
 
         def _write() -> Path:
             out.mkdir(parents=True, exist_ok=True)
             path = out / f"{episode_id}.json"
             path.write_bytes(dumps_bytes(episode))
-            _otel.end_episode_span(span, collector_ref)
+            _otel.end_episode_span(span, otel_snapshot)
             return path
 
         future = _get_executor().submit(_write)
