@@ -115,3 +115,164 @@ def make_anthropic_response(text="Hello!", tool_uses=None, input_tokens=50, outp
             self.stop_reason = "tool_use" if tool_uses else "end_turn"
 
     return Message()
+
+
+# --- Streaming mock helpers ---
+
+
+def make_openai_stream_chunks(content="Hello!", input_tokens=50, output_tokens=100):
+    """Build a list of fake OpenAI streaming chunks.
+
+    Returns a list of chunk objects that simulate ChatCompletionChunk.
+    """
+    mod_name = "openai.types.chat.chat_completion_chunk"
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = types.ModuleType(mod_name)
+
+    class Delta:
+        def __init__(self, content=None, tool_calls=None):
+            self.content = content
+            self.role = "assistant" if content else None
+            self.tool_calls = tool_calls
+
+    class ChoiceDelta:
+        def __init__(self, delta):
+            self.delta = delta
+            self.index = 0
+            self.finish_reason = None
+
+    class Usage:
+        def __init__(self, prompt_tokens, completion_tokens):
+            self.prompt_tokens = prompt_tokens
+            self.completion_tokens = completion_tokens
+
+    chunks = []
+
+    # Split content into word-level chunks
+    if content:
+        words = content.split(" ")
+        for i, word in enumerate(words):
+            text = word if i == len(words) - 1 else word + " "
+
+            class Chunk:
+                __module__ = mod_name
+
+                def __init__(self, text):
+                    self.choices = [ChoiceDelta(Delta(content=text))]
+                    self.usage = None
+
+            chunks.append(Chunk(text))
+
+    # Final chunk with usage
+    class FinalChunk:
+        __module__ = mod_name
+
+        def __init__(self):
+            self.choices = []
+            self.usage = Usage(input_tokens, output_tokens)
+
+    chunks.append(FinalChunk())
+
+    return chunks
+
+
+def make_openai_stream(content="Hello!", input_tokens=50, output_tokens=100):
+    """Build a fake OpenAI streaming iterator."""
+    mod_name = "openai.lib.streaming"
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = types.ModuleType(mod_name)
+
+    chunks = make_openai_stream_chunks(content, input_tokens, output_tokens)
+
+    class Stream:
+        __module__ = mod_name
+
+        def __init__(self, chunks):
+            self._chunks = iter(chunks)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self._chunks)
+
+    return Stream(chunks)
+
+
+def make_anthropic_stream_events(text="Hello!", input_tokens=50, output_tokens=100):
+    """Build a list of fake Anthropic streaming events."""
+
+    class Event:
+        def __init__(self, **kwargs):
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    class MessageUsage:
+        def __init__(self, input_tokens):
+            self.input_tokens = input_tokens
+
+    class DeltaUsage:
+        def __init__(self, output_tokens):
+            self.output_tokens = output_tokens
+
+    class MessageObj:
+        def __init__(self, input_tokens):
+            self.usage = MessageUsage(input_tokens)
+
+    events = []
+
+    # message_start
+    events.append(Event(type="message_start", message=MessageObj(input_tokens)))
+
+    # content_block_start for text
+    events.append(Event(
+        type="content_block_start",
+        content_block=Event(type="text", text=""),
+        index=0,
+    ))
+
+    # Text deltas
+    if text:
+        words = text.split(" ")
+        for i, word in enumerate(words):
+            t = word if i == len(words) - 1 else word + " "
+            events.append(Event(
+                type="content_block_delta",
+                delta=Event(type="text_delta", text=t),
+                index=0,
+            ))
+
+    # content_block_stop
+    events.append(Event(type="content_block_stop", index=0))
+
+    # message_delta with usage
+    events.append(Event(
+        type="message_delta",
+        delta=Event(type="message_delta", stop_reason="end_turn"),
+        usage=DeltaUsage(output_tokens),
+    ))
+
+    return events
+
+
+def make_anthropic_stream(text="Hello!", input_tokens=50, output_tokens=100):
+    """Build a fake Anthropic streaming iterator."""
+    mod_name = "anthropic.lib.streaming"
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = types.ModuleType(mod_name)
+
+    events = make_anthropic_stream_events(text, input_tokens, output_tokens)
+
+    class MessageStream:
+        __module__ = mod_name
+
+        def __init__(self, events):
+            self._events = iter(events)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self._events)
+
+    return MessageStream(events)

@@ -22,8 +22,8 @@ For async functions:
 
 For custom LLM wrappers, provide a normalizer:
 
-    def my_normalizer(response) -> tuple[list[dict], int]:
-        return [{"role": "assistant", "content": response.text}], response.token_count
+    def my_normalizer(response) -> tuple[list[dict], int, int]:
+        return [{"role": "assistant", "content": response.text}], input_tokens, output_tokens
 
     @trace(collector, normalizer=my_normalizer)
     def call_custom_llm(messages):
@@ -31,7 +31,9 @@ For custom LLM wrappers, provide a normalizer:
 """
 
 import functools
+import inspect
 from sentric.parsers import detect_and_parse
+from sentric.streams import TracedStream, TracedAsyncStream
 
 
 def _extract_input_messages(args, kwargs) -> list[dict]:
@@ -109,14 +111,46 @@ def _post_call(collector, response, normalizer):
         collector.add_tokens(input_tokens=input_tokens, output_tokens=output_tokens)
 
 
+def _detect_stream_type(response) -> str | None:
+    """Detect if a response is a streaming response and return the provider type."""
+    type_name = type(response).__name__
+    module = getattr(type(response), "__module__", "") or ""
+
+    # OpenAI Stream object
+    if "openai" in module and "Stream" in type_name:
+        return "openai"
+
+    # Anthropic MessageStream
+    if "anthropic" in module and "Stream" in type_name:
+        return "anthropic"
+
+    return None
+
+
+def _detect_async_stream_type(response) -> str | None:
+    """Detect if a response is an async streaming response."""
+    type_name = type(response).__name__
+    module = getattr(type(response), "__module__", "") or ""
+
+    if "openai" in module and "Stream" in type_name:
+        return "openai"
+
+    if "anthropic" in module and "Stream" in type_name:
+        return "anthropic"
+
+    return None
+
+
 def trace(collector, normalizer=None):
     """Decorator that logs LLM calls to a TrajectoryCollector.
+
+    Supports both regular and streaming responses. Streaming responses
+    are wrapped in a TracedStream that logs content when exhausted.
 
     Args:
         collector: A TrajectoryCollector instance to log messages to.
         normalizer: Optional function that takes a response and returns
-            (messages: list[dict], token_count: int). If provided, this
-            is used instead of auto-detection.
+            (messages: list[dict], input_tokens: int, output_tokens: int).
     """
 
     def decorator(fn):
@@ -124,6 +158,12 @@ def trace(collector, normalizer=None):
         def wrapper(*args, **kwargs):
             _pre_call(collector, args, kwargs)
             response = fn(*args, **kwargs)
+
+            # Check for streaming response
+            stream_type = _detect_stream_type(response)
+            if stream_type and normalizer is None:
+                return TracedStream(response, collector, stream_type=stream_type)
+
             _post_call(collector, response, normalizer)
             return response
 
@@ -135,13 +175,13 @@ def trace(collector, normalizer=None):
 def atrace(collector, normalizer=None):
     """Async decorator that logs LLM calls to a TrajectoryCollector.
 
-    Works identically to @trace but wraps async functions.
+    Supports both regular and streaming responses. Async streaming responses
+    are wrapped in a TracedAsyncStream.
 
     Args:
         collector: A TrajectoryCollector instance to log messages to.
         normalizer: Optional function that takes a response and returns
-            (messages: list[dict], token_count: int). If provided, this
-            is used instead of auto-detection.
+            (messages: list[dict], input_tokens: int, output_tokens: int).
     """
 
     def decorator(fn):
@@ -149,6 +189,17 @@ def atrace(collector, normalizer=None):
         async def wrapper(*args, **kwargs):
             _pre_call(collector, args, kwargs)
             response = await fn(*args, **kwargs)
+
+            # Check for async streaming response
+            stream_type = _detect_async_stream_type(response)
+            if stream_type and normalizer is None:
+                return TracedAsyncStream(response, collector, stream_type=stream_type)
+
+            # Also check sync iterator returned from async fn
+            sync_type = _detect_stream_type(response)
+            if sync_type and normalizer is None:
+                return TracedStream(response, collector, stream_type=sync_type)
+
             _post_call(collector, response, normalizer)
             return response
 
