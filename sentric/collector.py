@@ -1,14 +1,30 @@
-import json
+import atexit
+import logging
 import uuid
 import time
 import sys
 import platform
 import subprocess
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sentric._json import dumps_bytes
 from sentric.pricing import get_pricing, calculate_cost
 from sentric import otel as _otel
+
+_log = logging.getLogger("sentric")
+
+_executor: ThreadPoolExecutor | None = None
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """Return the module-level singleton ThreadPoolExecutor."""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=1)
+        atexit.register(_executor.shutdown, wait=True)
+    return _executor
 
 _SENTINEL = object()
 
@@ -193,11 +209,40 @@ class TrajectoryCollector:
         episode = self.to_dict()
 
         path = out / f"{self.episode_id}.json"
-        path.write_text(json.dumps(episode, indent=2))
+        path.write_bytes(dumps_bytes(episode))
 
         _otel.end_episode_span(self._otel_span, self)
 
         return path
+
+    def save_episode_async(self, output_dir: str | None = None) -> Future:
+        """Write the trajectory to disk in a background thread.
+
+        Returns a Future that resolves to the saved Path.
+        Exceptions are logged if the Future is not checked.
+        """
+        episode = self.to_dict()
+        episode_id = self.episode_id
+        out = Path(output_dir) if output_dir else self.output_dir
+        span = self._otel_span
+        collector_ref = self
+
+        def _write() -> Path:
+            out.mkdir(parents=True, exist_ok=True)
+            path = out / f"{episode_id}.json"
+            path.write_bytes(dumps_bytes(episode))
+            _otel.end_episode_span(span, collector_ref)
+            return path
+
+        future = _get_executor().submit(_write)
+
+        def _on_done(f: Future):
+            exc = f.exception()
+            if exc is not None:
+                _log.warning("save_episode_async failed: %s", exc)
+
+        future.add_done_callback(_on_done)
+        return future
 
     def capture_env(self):
         """Capture environment info into metadata under the _env key."""
