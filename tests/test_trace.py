@@ -224,7 +224,7 @@ def test_custom_normalizer():
         )
 
         def my_normalizer(response):
-            return [{"role": "assistant", "content": response["text"]}], response["tokens"]
+            return [{"role": "assistant", "content": response["text"]}], 0, response["tokens"]
 
         @trace(collector, normalizer=my_normalizer)
         def call_llm(messages):
@@ -237,7 +237,7 @@ def test_custom_normalizer():
 
 
 def test_custom_normalizer_without_token_count():
-    """Normalizer that returns only messages (no token tuple) still works."""
+    """Normalizer returning zero tokens works correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
         collector = TrajectoryCollector(
             task_id="test", domain="code",
@@ -246,7 +246,7 @@ def test_custom_normalizer_without_token_count():
         )
 
         def my_normalizer(response):
-            return [{"role": "assistant", "content": response}]
+            return [{"role": "assistant", "content": response}], 0, 0
 
         @trace(collector, normalizer=my_normalizer)
         def call_llm(messages):

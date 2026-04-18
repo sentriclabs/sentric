@@ -398,3 +398,32 @@ def test_unknown_model_no_cost():
 
         assert data["total_cost_usd"] is None
         assert data["total_tokens"] == 300
+
+
+def test_split_tokens_in_output():
+    """input_tokens and output_tokens are tracked separately in JSON output."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        collector = TrajectoryCollector(
+            task_id="test", domain="code",
+            model={"name": "test", "version": "base", "provider": "local"},
+            output_dir=tmpdir,
+        )
+        collector.add_message(role="user", content="hello")
+        collector.add_tokens(input_tokens=100, output_tokens=200)
+        collector.add_tokens(input_tokens=50, output_tokens=75)
+        path = collector.save_episode()
+        data = json.loads(path.read_text())
+
+        assert data["input_tokens"] == 150
+        assert data["output_tokens"] == 275
+        assert data["total_tokens"] == 425
+
+
+def test_backward_compat_add_tokens():
+    """add_tokens(500) as positional arg still tracks tokens."""
+    collector = TrajectoryCollector(
+        task_id="test", domain="code",
+        model={"name": "test", "version": "base", "provider": "local"},
+    )
+    collector.add_tokens(500)
+    assert collector._total_tokens == 500

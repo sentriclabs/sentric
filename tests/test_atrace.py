@@ -116,7 +116,7 @@ async def test_atrace_custom_normalizer():
         )
 
         def my_normalizer(response):
-            return [{"role": "assistant", "content": response["text"]}], response["tokens"]
+            return [{"role": "assistant", "content": response["text"]}], 0, response["tokens"]
 
         @atrace(collector, normalizer=my_normalizer)
         async def call_llm(messages):
