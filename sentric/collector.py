@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sentric.pricing import get_pricing, calculate_cost
+from sentric import otel as _otel
 
 _SENTINEL = object()
 
@@ -72,7 +73,7 @@ class TrajectoryCollector:
         self._output_tokens = 0
         self._cost_usd = 0.0
         self._executor = None
-        self._otel_span = None
+        self._otel_span = _otel.start_episode_span(self)
 
     def add_message(
         self,
@@ -103,6 +104,13 @@ class TrajectoryCollector:
             message["tool_call_id"] = tool_call_id
 
         self.messages.append(message)
+
+        _otel.emit_message_event(
+            self._otel_span, role,
+            content=content,
+            tool_calls=tool_calls,
+            tool_call_id=tool_call_id,
+        )
 
     def add_step(
         self,
@@ -186,6 +194,9 @@ class TrajectoryCollector:
 
         path = out / f"{self.episode_id}.json"
         path.write_text(json.dumps(episode, indent=2))
+
+        _otel.end_episode_span(self._otel_span, self)
+
         return path
 
     def capture_env(self):
@@ -228,3 +239,4 @@ class TrajectoryCollector:
         self._input_tokens = 0
         self._output_tokens = 0
         self._cost_usd = 0.0
+        self._otel_span = _otel.start_episode_span(self)
