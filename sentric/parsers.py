@@ -75,13 +75,7 @@ def detect_and_parse(response, normalizer=None) -> tuple[list[dict], int, int]:
         (messages, input_tokens, output_tokens)
     """
     if normalizer is not None:
-        result = normalizer(response)
-        if isinstance(result, tuple) and len(result) == 3:
-            return result
-        if isinstance(result, tuple) and len(result) == 2:
-            # Backward compat: (messages, total_tokens) -> treat as output tokens
-            return result[0], 0, result[1]
-        return result, 0, 0
+        return normalizer(response)
 
     type_name = type(response).__name__
     module = type(response).__module__ or ""
