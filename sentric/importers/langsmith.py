@@ -34,6 +34,7 @@ Example input:
 
 import logging
 import uuid
+from datetime import datetime
 
 _log = logging.getLogger("sentric.importers")
 
@@ -190,7 +191,6 @@ def from_langsmith(data: dict) -> dict:
     start = data.get("start_time")
     end = data.get("end_time")
     if start and end:
-        from datetime import datetime
         try:
             t0 = datetime.fromisoformat(start.replace("Z", "+00:00"))
             t1 = datetime.fromisoformat(end.replace("Z", "+00:00"))

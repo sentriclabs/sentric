@@ -28,7 +28,7 @@ def test_openai_messages_basic():
     assert episode["messages"][1]["role"] == "user"
     assert episode["messages"][2]["content"] == "Hi there!"
     assert episode["model"]["name"] == "gpt-4o"
-    assert episode["model"]["provider"] == "openai"
+    assert episode["model"]["provider"] == ""
     assert episode["total_tokens"] == 150
     assert episode["input_tokens"] == 100
     assert episode["output_tokens"] == 50

@@ -66,7 +66,7 @@ def from_openai_messages(data: dict) -> dict:
         "episode_id": data.get("id", str(uuid.uuid4())),
         "task_id": data.get("task_id", ""),
         "domain": data.get("domain", ""),
-        "model": {"name": model_name, "version": "", "provider": "openai"},
+        "model": {"name": model_name, "version": "", "provider": ""},
         "messages": messages,
         "reward": None,
         "success": None,

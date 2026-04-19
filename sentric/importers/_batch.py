@@ -42,7 +42,7 @@ def import_directory(path: str | Path, format: str) -> list[dict]:
             with open(entry.path) as f:
                 data = json.load(f)
             episodes.append(importer_fn(data))
-        except (json.JSONDecodeError, KeyError) as exc:
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             _log.warning("Skipping %s: %s", entry.name, exc)
 
     return episodes

@@ -33,6 +33,7 @@ Example input:
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
 _log = logging.getLogger("sentric.importers")
 
@@ -161,7 +162,6 @@ def from_wandb(data: dict) -> dict:
     # Convert start_time_ms to ISO string
     created_at = None
     if start_ms is not None:
-        from datetime import datetime, timezone
         try:
             created_at = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).isoformat()
         except (ValueError, OSError):
