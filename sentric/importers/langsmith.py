@@ -213,6 +213,5 @@ def from_langsmith(data: dict) -> dict:
         "total_tokens": total_tokens,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "total_cost_usd": None,
         "metadata": metadata,
     }

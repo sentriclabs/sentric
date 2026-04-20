@@ -245,7 +245,7 @@ for chunk in call_llm_stream(messages):
 
 The full message is logged when the stream completes.
 
-## Token & Cost Tracking
+## Token Tracking
 
 ### Automatic (via @trace)
 
@@ -255,33 +255,6 @@ Token counts are extracted automatically from OpenAI and Anthropic responses.
 
 ```python
 collector.add_tokens(input_tokens=1500, output_tokens=500)
-```
-
-### Cost Calculation
-
-Costs are calculated automatically for known models using built-in pricing tables:
-
-- **OpenAI**: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo, o1, o1-mini, o3-mini
-- **Anthropic**: claude-opus-4-20250514, claude-sonnet-4-20250514, claude-haiku-3-5-20241022
-
-For custom pricing:
-
-```python
-collector = TrajectoryCollector(
-    task_id="my-task", domain="code",
-    model={
-        "name": "my-fine-tune",
-        "version": "v1",
-        "provider": "openai",
-        "pricing": {"input": 5.0 / 1_000_000, "output": 15.0 / 1_000_000},
-    },
-)
-```
-
-Or add cost manually:
-
-```python
-collector.add_cost(0.0023)  # USD
 ```
 
 ## Loading & Scoring
@@ -396,7 +369,7 @@ pip install sentric[otel]
 # sentric automatically emits spans and events:
 #   - Parent span per episode with task_id, model, domain attributes
 #   - Span events per message with role, content preview, tool info
-#   - Final attributes: message_count, total_tokens, cost
+#   - Final attributes: message_count, total_tokens
 ```
 
 The OTel code path uses `functools.lru_cache` to check for the package once. If not installed, all OTel functions are no-ops that return immediately.
@@ -455,7 +428,6 @@ Every saved trajectory follows this schema:
   "total_tokens": "int | null",
   "input_tokens": "int | null",
   "output_tokens": "int | null",
-  "total_cost_usd": "float | null",
   "metadata": {}
 }
 ```
@@ -476,7 +448,6 @@ Every saved trajectory follows this schema:
 | `total_tokens` | Input + output tokens (null if not tracked) |
 | `input_tokens` | Prompt/input tokens (null if not tracked) |
 | `output_tokens` | Completion/output tokens (null if not tracked) |
-| `total_cost_usd` | Calculated or manual cost in USD (null if unknown) |
 | `metadata` | Arbitrary dict for your use |
 
 ## Performance

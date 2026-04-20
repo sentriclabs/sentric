@@ -4,7 +4,7 @@ Usage:
     sentric view <path>           Pretty-print a single trajectory
     sentric view <directory>      List trajectories with summary stats
     sentric view <path> --turns   Show turn-by-turn with role colors
-    sentric view <path> --stats   Show token/cost/duration summary only
+    sentric view <path> --stats   Show token/duration summary only
     sentric view <path> --json    Raw JSON output (for piping)
     sentric view <path> --full    Show full content (no truncation)
 
@@ -86,12 +86,6 @@ def _format_tokens(tokens: int | None) -> str:
     return str(tokens)
 
 
-def _format_cost(cost: float | None) -> str:
-    if cost is None:
-        return "n/a"
-    return f"${cost:.4f}"
-
-
 def _view_stats(episode: dict, out, use_color: bool):
     """Print summary statistics for an episode."""
     write = out.write
@@ -115,7 +109,6 @@ def _view_stats(episode: dict, out, use_color: bool):
     write(f"  Input tokens:  {_format_tokens(episode.get('input_tokens'))}\n")
     write(f"  Output tokens: {_format_tokens(episode.get('output_tokens'))}\n")
     write(f"  Total tokens:  {_format_tokens(episode.get('total_tokens'))}\n")
-    write(f"  Cost:          {_format_cost(episode.get('total_cost_usd'))}\n")
 
     reward = episode.get("reward")
     success = episode.get("success")
@@ -195,8 +188,8 @@ def _view_directory(dirpath: Path, out):
         write("  No trajectory files found.\n")
         return
 
-    write(f"  {'File':<40} {'Messages':>8} {'Tokens':>8} {'Cost':>10}\n")
-    write(f"  {'─' * 40} {'─' * 8} {'─' * 8} {'─' * 10}\n")
+    write(f"  {'File':<40} {'Messages':>8} {'Tokens':>8}\n")
+    write(f"  {'─' * 40} {'─' * 8} {'─' * 8}\n")
 
     for entry in entries:
         try:
@@ -211,9 +204,8 @@ def _view_directory(dirpath: Path, out):
 
         n_msgs = len(ep.get("messages", []))
         tokens = _format_tokens(ep.get("total_tokens"))
-        cost = _format_cost(ep.get("total_cost_usd"))
 
-        write(f"  {name:<40} {n_msgs:>8} {tokens:>8} {cost:>10}\n")
+        write(f"  {name:<40} {n_msgs:>8} {tokens:>8}\n")
 
     write(f"\n  {len(entries)} trajectory file(s)\n")
 

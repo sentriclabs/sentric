@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sentric._json import dumps_bytes
-from sentric.pricing import get_pricing, calculate_cost
 from sentric import otel as _otel
 
 _log = logging.getLogger("sentric")
@@ -37,16 +36,12 @@ _SENTINEL = object()
 class _OtelSnapshot:
     """Lightweight snapshot of collector state for async OTel span ending."""
 
-    __slots__ = ("messages", "_input_tokens", "_output_tokens", "_cost")
+    __slots__ = ("messages", "_input_tokens", "_output_tokens")
 
-    def __init__(self, messages, input_tokens, output_tokens, cost):
+    def __init__(self, messages, input_tokens, output_tokens):
         self.messages = messages
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
-        self._cost = cost
-
-    def _calculate_cost(self):
-        return self._cost
 
 
 class TrajectoryCollector:
@@ -84,7 +79,6 @@ class TrajectoryCollector:
         "_start_time",
         "_input_tokens",
         "_output_tokens",
-        "_cost_usd",
         "_executor",
         "_otel_span",
     )
@@ -107,7 +101,6 @@ class TrajectoryCollector:
         self._start_time = time.monotonic()
         self._input_tokens = 0
         self._output_tokens = 0
-        self._cost_usd = 0.0
         self._executor = None
         self._otel_span = _otel.start_episode_span(self)
 
@@ -175,28 +168,10 @@ class TrajectoryCollector:
         self._input_tokens += input_tokens
         self._output_tokens += output_tokens
 
-    def add_cost(self, amount: float):
-        """Manually add cost in USD."""
-        self._cost_usd += amount
-
     @property
     def _total_tokens(self) -> int:
         """Total tokens (input + output) for backward compatibility."""
         return self._input_tokens + self._output_tokens
-
-    def _calculate_cost(self) -> float | None:
-        """Calculate total cost from tokens and model pricing."""
-        total = self._cost_usd
-
-        if self._input_tokens > 0 or self._output_tokens > 0:
-            pricing = get_pricing(
-                self.model.get("name", ""),
-                self.model.get("pricing"),
-            )
-            if pricing is not None:
-                total += calculate_cost(self._input_tokens, self._output_tokens, pricing)
-
-        return total if total > 0 else None
 
     def to_dict(self) -> dict:
         """Return the episode as a dict without writing to disk."""
@@ -217,7 +192,6 @@ class TrajectoryCollector:
             "total_tokens": total_tokens if total_tokens > 0 else None,
             "input_tokens": self._input_tokens if self._input_tokens > 0 else None,
             "output_tokens": self._output_tokens if self._output_tokens > 0 else None,
-            "total_cost_usd": self._calculate_cost(),
             "metadata": self.metadata,
         }
 
@@ -252,7 +226,6 @@ class TrajectoryCollector:
             messages=self.messages,
             input_tokens=self._input_tokens,
             output_tokens=self._output_tokens,
-            cost=self._calculate_cost(),
         )
 
         def _write() -> Path:
@@ -311,5 +284,4 @@ class TrajectoryCollector:
         self._start_time = time.monotonic()
         self._input_tokens = 0
         self._output_tokens = 0
-        self._cost_usd = 0.0
         self._otel_span = _otel.start_episode_span(self)

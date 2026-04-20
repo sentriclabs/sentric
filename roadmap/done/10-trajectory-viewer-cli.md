@@ -5,13 +5,13 @@
 **Status**: planned
 
 ## Summary
-A `sentric view` CLI command that pretty-prints trajectories in the terminal. Developers debugging agent runs shouldn't need to open JSON files in an editor. Color-coded roles, collapsible tool calls, token/cost summaries.
+A `sentric view` CLI command that pretty-prints trajectories in the terminal. Developers debugging agent runs shouldn't need to open JSON files in an editor. Color-coded roles, collapsible tool calls, token summaries.
 
 ## Requirements
 - `sentric view <path>` — pretty-print a single trajectory
 - `sentric view <directory>` — list trajectories with summary stats
 - `sentric view <path> --turns` — show turn-by-turn with role colors
-- `sentric view <path> --stats` — show token/cost/duration summary only
+- `sentric view <path> --stats` — show token/duration summary only
 - `sentric view <path> --json` — raw JSON output (for piping)
 - Color-coded roles: system=gray, user=blue, assistant=green, tool=yellow
 - Truncate long content with `--full` flag to show everything

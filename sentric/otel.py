@@ -49,10 +49,6 @@ def end_episode_span(span, collector):
         "sentric.output_tokens": collector._output_tokens,
     }
 
-    cost = collector._calculate_cost()
-    if cost is not None:
-        attrs["sentric.total_cost_usd"] = cost
-
     for key, value in attrs.items():
         span.set_attribute(key, value)
 

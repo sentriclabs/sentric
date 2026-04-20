@@ -5,10 +5,10 @@ import tempfile
 from io import StringIO
 from pathlib import Path
 
-from sentric.cli import main, _view_single, _view_directory, _build_parser, _format_duration, _format_tokens, _format_cost
+from sentric.cli import main, _view_single, _view_directory, _build_parser, _format_duration, _format_tokens
 
 
-def _make_episode(task_id="test-task", n_messages=3, tokens=True, cost=True):
+def _make_episode(task_id="test-task", n_messages=3, tokens=True):
     """Create a sample episode dict."""
     messages = []
     messages.append({"role": "system", "content": "You are a helpful assistant."})
@@ -37,7 +37,6 @@ def _make_episode(task_id="test-task", n_messages=3, tokens=True, cost=True):
         "total_tokens": 300 if tokens else None,
         "input_tokens": 200 if tokens else None,
         "output_tokens": 100 if tokens else None,
-        "total_cost_usd": 0.0045 if cost else None,
         "metadata": {},
     }
     return ep
@@ -62,11 +61,6 @@ def test_format_tokens():
     assert _format_tokens(None) == "n/a"
     assert _format_tokens(500) == "500"
     assert _format_tokens(1500) == "1,500"
-
-
-def test_format_cost():
-    assert _format_cost(None) == "n/a"
-    assert _format_cost(0.0045) == "$0.0045"
 
 
 # --- View single ---
@@ -105,7 +99,6 @@ def test_cli_view_stats_only():
         output = out.getvalue()
         assert "Episode Stats" in output
         assert "300" in output
-        assert "$0.0045" in output
         # Should not have turn-by-turn
         assert "[user]" not in output
 
@@ -243,7 +236,7 @@ def test_cli_main_missing_file(capsys):
 def test_cli_view_no_tokens():
     """View episode without token data."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        ep = _make_episode(tokens=False, cost=False)
+        ep = _make_episode(tokens=False)
         path = _write_episode(tmpdir, ep)
 
         out = StringIO()
