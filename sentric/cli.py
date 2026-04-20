@@ -38,13 +38,14 @@ _ROLE_COLORS = {
 _MAX_CONTENT_LEN = 200
 
 
-def _supports_color() -> bool:
-    """Check if the terminal supports color output."""
+def _supports_color(stream=None) -> bool:
+    """Check if the output stream supports color output."""
     if os.environ.get("NO_COLOR"):
         return False
-    if not hasattr(sys.stdout, "isatty"):
+    stream = stream or sys.stdout
+    if not hasattr(stream, "isatty"):
         return False
-    return sys.stdout.isatty()
+    return stream.isatty()
 
 
 def _color(text: str, code: str, use_color: bool) -> str:
@@ -131,7 +132,7 @@ def _view_turns(episode: dict, out, use_color: bool, full: bool):
     write = out.write
     messages = episode.get("messages", [])
 
-    for i, msg in enumerate(messages):
+    for msg in messages:
         role = msg.get("role", "unknown")
         color = _ROLE_COLORS.get(role, _WHITE)
 
@@ -162,7 +163,7 @@ def _view_turns(episode: dict, out, use_color: bool, full: bool):
 def _view_single(path: Path, args, out):
     """View a single trajectory file."""
     episode = _load_episode(path)
-    use_color = _supports_color() and not args.json
+    use_color = _supports_color(out) and not args.json
 
     if args.json:
         out.write(json.dumps(episode, indent=2) + "\n")
@@ -174,14 +175,12 @@ def _view_single(path: Path, args, out):
 
     # Default: show stats header then turns
     _view_stats(episode, out, use_color)
-
-    if args.turns or not args.stats:
-        _view_turns(episode, out, use_color, args.full)
+    _view_turns(episode, out, use_color, args.full)
 
 
 def _view_directory(dirpath: Path, out):
     """List trajectories in a directory with summary stats."""
-    use_color = _supports_color()
+    use_color = _supports_color(out)
     write = out.write
 
     write(_color(f"Trajectories in {dirpath}", _BOLD + _CYAN, use_color) + "\n")
